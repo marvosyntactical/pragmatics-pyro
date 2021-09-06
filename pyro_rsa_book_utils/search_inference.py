@@ -3,7 +3,7 @@
 """
 Inference algorithms and utilities used in the RSA example models.
 
-Adapted from: http://dippl.org/chapters/03-enumeration.html
+Adapted/Modified from: http://dippl.org/chapters/03-enumeration.html
 """
 
 from __future__ import absolute_import, division, print_function
@@ -67,6 +67,8 @@ class HashingMarginal(dist.Distribution):
     @classmethod
     def marginalize2d(cls, hashing_marginal_2d, index=0):
         """
+        ### FIXME HACKY POST-HOC METHOD FOR VISUALIZATION
+
         Takes a HashingMarginal with a two dimensional support and marginalizes w.r.t. to the index,
         i.e. integrates w.r.t. THE OTHER index, and returns a HashingMarginal distribution
 
