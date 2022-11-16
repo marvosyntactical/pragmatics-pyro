@@ -3,10 +3,22 @@ import pyro.distributions as dist
 
 import torch
 
+from collections import namedtuple
+
 import matplotlib.pyplot as plt
 
+def visualize(d, **kwargs):
+    first = d.enumerate_support()[0]
+    if not isinstance(first, tuple):
+        # 1D
+        return silly_plotter(d)
+    else:
+        # 2D
+        assert len(first) == 2, first
+        return sillier_plotter(d, **kwargs)
+
 def silly_plotter(d):
-    # silly plotting helper:
+    # silly plotting helper from official pyro RSA examples
     support = d.enumerate_support()
     data = [d.log_prob(s).exp().item() for s in d.enumerate_support()]
     names = list(map(str, support))
@@ -20,7 +32,7 @@ def silly_plotter(d):
 
 def sillier_plotter(d: dist, threshold_bins=20, x_name=None, y_name=None):
     """
-    silly plotter for two dimensional joint dist
+    adapted, even sillier plotter for two dimensional joint dist
     plots marginal distributions for 2 RVs
     if one of the numbers of support bins
     exceeds threshold_bins, that dist is drawn as a line graph

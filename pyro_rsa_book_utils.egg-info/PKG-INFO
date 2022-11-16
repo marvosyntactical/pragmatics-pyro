@@ -1,11 +1,9 @@
-Metadata-Version: 1.2
+Metadata-Version: 2.1
 Name: pyro-rsa-book-utils
-Version: 0.9
-Summary: Pyro port of Problang
+Version: 0.9.1
+Summary: Pyro port of Problang.org
 Home-page: https://github.com/marvosyntactical/pragmatics-pyro
 Author: Marvin Koss
 License: Apache License
 Project-URL: Source, https://github.com/marvosyntactical/pragmatics-pyro
-Description: UNKNOWN
-Platform: UNKNOWN
-Requires-Python: >=3.8
+Requires-Python: >=3.10

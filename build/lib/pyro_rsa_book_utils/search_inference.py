@@ -3,7 +3,7 @@
 """
 Inference algorithms and utilities used in the RSA example models.
 
-Adapted from: http://dippl.org/chapters/03-enumeration.html
+Adapted/Modified from: http://dippl.org/chapters/03-enumeration.html
 """
 
 from __future__ import absolute_import, division, print_function
@@ -64,78 +64,6 @@ class HashingMarginal(dist.Distribution):
         super(HashingMarginal, self).__init__()
         self.trace_dist = trace_dist
 
-    @classmethod
-    def marginalize2d(cls, hashing_marginal_2d, index=0):
-        """
-        Takes a HashingMarginal with a two dimensional support and marginalizes w.r.t. to the index,
-        i.e. integrates w.r.t. THE OTHER index, and returns a HashingMarginal distribution
-
-        Assumptions:
-        * hashing_marginal_2d has 2D support; index is in [0,1]
-        * supports of hashing_marginal_2d are each sortable
-        * equality ("==") is safe to use for each support (check precision of floats). TODO implement acceptable error for each dimension
-        """
-        assert index in [0,1], f"only 2D case supported, got index={index}"
-
-        d = hashing_marginal_2d
-
-        # lets call the indexed RV X, so we want to get
-        # p(x) = \int_Y y*p(x,y)dy, \forall x
-        joint = hashing_marginal_2d.enumerate_support()
-        A, B = zip(*joint)
-        X, Y = (A, B) if index == 0 else (B, A)
-        X, Y = sorted(list(set(X))), sorted(list(set(Y)))
-
-        # integrate out Y
-        pX = [
-            (torch.sum(torch.stack(
-                [torch.sum(torch.cat([y * d.log_prob(joint[k]).exp() for k in range(len(joint)) if (joint[k][1-index]==y and joint[k][index]==x)]))
-                 for y in Y])), x)
-            for x in X
-        ]
-
-        _RETURN = "_RETURN"
-        assert d.sites == _RETURN, d2d.sites
-
-        td = d.trace_dist
-
-        # dont know how to alter trace_dist.log_weights to contain log p(X) instead of log p(X,Y)
-        # since this function is only needed for HM.log_prob i simply hack
-        # this helper function into returnHM._dist_and_values()
-        @memoize(maxsize=10)
-        def _helper_dist_and_values():
-            # overwritten dist_and_values (see HashingMarginal.marginalize2d)
-            values_map = collections.OrderedDict()
-
-            for tr in td.exec_traces:
-                value = tr.nodes[_RETURN]["value"][index]
-                # ---
-                if torch.is_tensor(value):
-                    value_hash = hash(value.cpu().contiguous().numpy().tobytes())
-                elif isinstance(value, dict):
-                    value_hash = hash(HashingMarginal._dict_to_tuple(value))
-                else:
-                    value_hash = hash(value)
-                # ---
-                if value_hash not in values_map:
-                    values_map[value_hash] = value
-
-            logits = []
-            for value_hash, value in values_map.items():
-                value_idx = X.index(value)
-                logit = pX[value_idx]
-                logits += [logit]
-
-            d = dist.Categorical(logits=torch.Tensor(logits))
-            return d, values_map
-
-
-        HM = HashingMarginal(td)
-        HM._dist_and_values = _helper_dist_and_values
-        return HM
-
-
-
     @memoize(maxsize=10)
     def _dist_and_values(self):
         # XXX currently this whole object is very inefficient
@@ -153,7 +81,8 @@ class HashingMarginal(dist.Distribution):
                 logit = torch.tensor(logit)
             # ---
             if torch.is_tensor(value):
-                value_hash = hash(value.cpu().contiguous().numpy().tobytes())
+                value = value.item()
+                value_hash = hash(value)
             elif isinstance(value, dict):
                 value_hash = hash(HashingMarginal._dict_to_tuple(value))
             else:
@@ -165,10 +94,12 @@ class HashingMarginal(dist.Distribution):
                         torch.stack([logits[value_hash],logit]), dim=-1
                 )
             else:
+                # Create entry for new value.
                 logits[value_hash] = logit
                 values_map[value_hash] = value
 
         logits = torch.stack(list(logits.values())).contiguous().view(-1)
+        
         # normalization in log space:
         logits = logits - dist.util.logsumexp(logits, dim=-1)
         d = dist.Categorical(logits=logits)
@@ -182,14 +113,18 @@ class HashingMarginal(dist.Distribution):
     def log_prob(self, val):
         d, values_map = self._dist_and_values()
         if torch.is_tensor(val):
-            value_hash = hash(val.cpu().contiguous().numpy().tobytes())
+            value_hash = hash(val.item())
         elif isinstance(val, dict):
-            value_hash = hash(self._dict_to_tuple(val))
+            value_hash = hash(HashingMarginal._dict_to_tuple(val))
         else:
             value_hash = hash(val)
 
-        return d.log_prob(torch.tensor([list(values_map.keys()).index(value_hash)]))
-
+        try:
+            log_prob = d.log_prob(torch.tensor([list(values_map.keys()).index(value_hash)]))
+            return log_prob
+        except ValueError as e:
+            raise ValueError(f"Value {val} not in support of distribution ({list(values_map.keys())})")
+        
     def enumerate_support(self):
         d, values_map = self._dist_and_values()
         return list(values_map.values())[:]
@@ -263,10 +198,12 @@ class Search(TracePosterior):
                 else:
                     tr, logit, chain_id = vals
                     assert chain_id < self.num_chains
+                  
                 self.exec_traces.append(tr)
                 self.log_weights.append(logit)
                 self.chain_ids.append(chain_id)
                 self._idx_by_chain[chain_id].append(i)
+        
         self._categorical = dist.Categorical(logits=torch.tensor(self.log_weights))
         return self
 
@@ -313,9 +250,7 @@ class BestFirstSearch(TracePosterior):
     Inference by enumerating executions ordered by their probabilities.
     Exact (and results equivalent to Search) if all executions are enumerated.
     """
-    def __init__(self, model, num_samples=None, **kwargs):
-        if num_samples is None:
-            num_samples = 100
+    def __init__(self, model, num_samples=100, **kwargs):
         self.num_samples = num_samples
         self.model = model
         super(BestFirstSearch, self).__init__(**kwargs)
@@ -331,3 +266,87 @@ class BestFirstSearch(TracePosterior):
                 break
             tr = poutine.trace(q_fn).get_trace(*args, **kwargs)  # XXX should block
             yield tr, tr.log_prob_sum()
+
+            
+            
+def Marginal(fn):
+    # for comments, see chapter 1
+    return memoize(lambda *args: HashingMarginal(Search(fn).run(*args)))
+
+def marginalize(hashing_marginal_2d, index=0):
+        """
+        ### FIXME HACKY POST-HOC METHOD FOR VISUALIZATION
+
+        Takes a HashingMarginal with a two dimensional support and marginalizes w.r.t. to the index,
+        i.e. integrates w.r.t. THE OTHER index, and returns a HashingMarginal distribution
+
+        Assumptions:
+        * hashing_marginal_2d has 2D support; index is in {0,1}
+        * supports of hashing_marginal_2d are each sortable
+        * equality ("==") is safe to use for each support (check precision of floats). TODO implement acceptable error for each dimension
+        """
+        assert index in {0,1}, f"only 2D case supported, got index={index}"
+
+        d = hashing_marginal_2d
+
+        _RETURN = "_RETURN"
+        assert d.sites == _RETURN, d.sites
+
+        td = d.trace_dist
+
+        # dont know how to alter trace_dist.log_weights to contain log p(X) instead of log p(X,Y)
+        # since this function is only needed for HM.log_prob i simply hack
+        # this helper function into HM._dist_and_values()
+        
+        @memoize(maxsize=10)
+        def _helper_dist_and_values():
+        # XXX currently this whole object is very inefficient
+
+            values_map, logits = collections.OrderedDict(), collections.OrderedDict()
+
+            for tr, logit in zip(td.exec_traces, td.log_weights):
+
+                if isinstance(d.sites, str):
+                    value = tr.nodes[d.sites]["value"]
+                else:
+                    value = {site: tr.nodes[site]["value"] for site in d.sites}
+
+                # print(logit, value)
+                value = value[index]
+
+                # ---
+                if not torch.is_tensor(logit):
+                    logit = torch.tensor(logit)
+                # ---                
+                
+                if torch.is_tensor(value):
+                    value = value.item()
+                    value_hash = hash(value)
+                elif isinstance(value, dict):
+                    value_hash = hash(HashingMarginal._dict_to_tuple(value))
+                else:
+                    value_hash = hash(value)
+                # ---
+                if value_hash in logits:
+                    # Value has already been seen.
+                    logits[value_hash] = dist.util.logsumexp(
+                            torch.stack([logits[value_hash], logit]), dim=-1
+                    )
+                else:
+                    # Create entry for new value.
+                    logits[value_hash] = logit
+                    values_map[value_hash] = value
+
+            logits = torch.stack(list(logits.values())).contiguous()
+            # print(logits, logits.shape)
+            
+            # logits_marginal = dist.util.logsumexp(logits, dim=index)
+            
+            # normalization in log space:
+            # logits_marginal = logits_marginal - dist.util.logsumexp(logits_marginal, dim=-1)
+            marginal = dist.Categorical(logits=logits)
+            return marginal, values_map
+        
+        HM = HashingMarginal(td)
+        HM._dist_and_values = _helper_dist_and_values
+        return HM
