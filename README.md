@@ -7,7 +7,7 @@ So far Chapters 01 and 09 have been included, with exercises, solutions and slid
 In the notebooks, utterances are interpreted by listeners which model the decisions of a speaker, and in doing so infer the intended meaning as well as properties of the speaker.
 
 
-![pragmaticlistener](pragmatic_listener.png)
+![pragmaticlistener](img/pragmatic_listener.png)
 
 # Example Setup
 
