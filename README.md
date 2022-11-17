@@ -1,6 +1,6 @@
 # Pragmatics in Pyro
 
-Port of [www.problang.org](https://www.problang.org) from [WebPPL](webppl.org/) to [Pyro](https://pyro.ai/))
+Port of [www.problang.org](https://www.problang.org) from [WebPPL](webppl.org/) to [Pyro](https://pyro.ai/).
 
 So far Chapters 01 and 09 have been included, with exercises, solutions and slides.
 
